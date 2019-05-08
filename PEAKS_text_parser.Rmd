@@ -1,0 +1,561 @@
+---
+title: "PEAKS Studio 8 text parser 1-4"
+author: "teresaNVD"
+date: "January 24, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE, cache=TRUE}
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+## Loading files
+
+```{r load_files, echo=FALSE, warning=FALSE}
+
+library(readr)
+
+proteins <- read_csv("~/MyFolder/MyPHD/Y2017/June2017/R_analysis/proteomicsR_formats/sample_PEAKS/09052017_KDAC_16h_PEAKS_10/proteins.csv")
+#View(proteins)
+
+print("#column names of proteins.csv file (PROTEIN)")
+colnames(proteins)
+
+print("#dimensions of proteins.csv file (row x col)")
+dim(proteins)
+
+peptide <- read_csv("~/MyFolder/MyPHD/Y2017/June2017/R_analysis/proteomicsR_formats/sample_PEAKS/09052017_KDAC_16h_PEAKS_10/peptide.csv")
+#View(peptide)
+
+print("#column names of peptide.csv file (PEPTIDE)")
+colnames(peptide)
+print("#dimensions of peptide.csv file (row x col)")
+dim(peptide)
+
+```
+
+## Parser #1
+
+1. Parse individual protein entries in the Accession or Protein accession column to obtain either the coresponding UniProt Accession or UniProt identifier.
+2. Obtain a list of proteins identified in a given experiment as either UniProt Accessions or UniProt identifiers.
+
+### Parser #1 (case 1)
+
+```{r parser#1_c1, echo=FALSE, warning=FALSE}
+
+#******CASE 1
+
+item_protein <- "P08238|HS90B_HUMAN"
+
+#Protein parser
+item_protein_parser <- function(item_protein, id_type){
+  
+  item_protein <- lapply(item_protein, function(x){unlist(strsplit(as.character(x), "|", fixed = TRUE))})
+  #print(item_protein[[1]])
+  
+  item_protein_parsed <- ifelse(identical(id_type, "Acc"), item_protein[[1]][1], ifelse(identical(id_type, "Id"), item_protein[[1]][2], print("Define id_type as Acc or Id (case sensitive)")))
+  
+  return(item_protein_parsed)
+}
+
+print(item_protein)
+print("PROTEIN as UniProt Accession")
+item_protein_parser(item_protein, c("Acc"))
+print("PROTEIN as UniProt Identifier")
+item_protein_parser(item_protein, "Id")
+
+#******CASE 1
+
+```
+
+### Parser #1 (case 2)
+
+```{r parser#1_c2, echo=FALSE, warning=FALSE}
+
+#******CASE 2
+
+#List UniProt Acc or Id identified in the PEAKS run
+#All files of interest contain an Accession column
+#id_type == "Acc" or id_type == "Id"
+#Will remove NaN in Accession column
+
+peaks_uniprot_id <- function(df = df, id_type, verbose){
+  
+  i <- sapply(df, is.factor)
+  df[i] <- lapply(df[i], as.character)
+  
+  list <- na.omit(df$Accession)
+  list <- lapply(list, function(x){unlist(ifelse(grepl(":", x) == TRUE, strsplit(as.character(x), ":", fixed = TRUE), x))})
+  list <- lapply(list, function(x){unlist(ifelse(grepl("|", x) == TRUE, strsplit(as.character(x), "|", fixed = TRUE), x))})
+  
+  if(identical(id_type, "Acc")){
+    
+    #print(list)
+    
+    list <- lapply(list, function(x){x[1]})
+    
+    }
+  
+  else if(identical(id_type, "Id")){
+    
+    list <- lapply(list, function(x){x[2]})
+  
+    }
+  
+  #list <- lapply(list, function(x){ ifelse(identical(id_type, "Acc"), x[1], ifelse(identical(id_type, "Id"), x[2], 
+  #                                                                        print("Define id_type as Acc or Id (case   sensitive)")))})
+  if (verbose == TRUE){
+    
+    cat("Number of",id_type,"found:", length(unlist(list)), "\n")
+  }
+  names(list) <- NULL
+
+  return(unlist(list))
+  }
+
+print("***proteins.csv; number of PROTEINS indentified***")
+head(peaks_uniprot_id(proteins, "Id", verbose = TRUE))
+head(peaks_uniprot_id(proteins, "Acc", verbose = TRUE))
+
+print("***peptide.csv; number of PROTEINS with at LEAST ONE PEPTIDE identified***")
+head(peaks_uniprot_id(peptide, "Id", verbose = TRUE))
+head(peaks_uniprot_id(peptide, "Acc", verbose = TRUE))
+
+#******CASE 2
+```
+
+## Parser #2
+
+1. Retrieve all peptides (modified and unmodified) of a given protein.
+2. Retrieve all proteins that match a given peptide sequence (modified and unmodified). DEVELOP
+
+### Parser #2 (case 1)
+
+```{r parser#2_c1, echo=FALSE, warning=FALSE}
+
+#******CASE 1
+
+#item_protein <- "AHNK_HUMAN"
+#item_protein <- "Q09666"
+item_protein <- "P08238|HS90B_HUMAN"
+
+#List all peptides found for a given PROTEIN
+all_peptides_of_a_protein <- function(df = df, item_protein){
+  
+  df_protein <- df[grep(item_protein, df$Accession), ]
+  
+  return(as.data.frame(df_protein))
+}
+
+protein_peptides <- all_peptides_of_a_protein(peptide, item_protein)
+
+print(paste0("peptides of PROTEIN: ", item_protein))
+protein_peptides$Peptide
+
+#******CASE 1
+```
+
+### Parser #2 (case 2)
+
+```{r parser#2_c2, echo=FALSE, warning=FALSE}
+
+#Since one peptide may belong to more than one protein we need to expand the table
+#Expand the peptide data.frame to "one peptide"-"one protein" in each row
+one_peptide_one_protein_row <-function(df){
+  
+  #Create list of AScores
+  Accession <- sapply(df$Accession, function(x){strsplit(x, ":")})
+  #print(Accession)
+  
+  #print(AScores)
+  substitute_df_v <- function(df, v){
+    df$Accession <- v
+    df <- as.data.frame(t(df))
+    return(df)
+  }
+  
+  df_Accession <- sapply(c(1:dim(df)[1]), function(i){lapply(sapply(Accession[[i]], function(x){substitute_df_v(df[i,], x)}), function(y){as.data.frame(y)})})
+  
+  df_Accession <- as.data.frame(t(as.data.frame(df_Accession)), stringsAsFactors = FALSE)
+  
+  return(df_Accession)
+} 
+
+peptide_row <- one_peptide_one_protein_row(peptide)
+
+print("Check how many rows were added after PROTEIN accession expansion")
+print("Before:")
+dim(peptide)
+print("After:")
+dim(peptide_row)
+
+print("Filter the PEPTIDES without UniProt identifier")
+dim(peptide[is.na(peptide$Accession),])
+peptide_row <- peptide_row[!is.na(peptide_row$Accession),]
+
+print("Filter the PEPTIDES without AScore information")
+dim(peptide[is.na(peptide$AScore),])
+peptide_row <- peptide_row[!is.na(peptide_row$AScore),]
+
+print("New dimensions of the peptide data frame")
+dim(peptide_row)
+
+#******CASE 2
+
+item_peptide <- "AT(+79.97)S(+79.97)NVFAM(+15.99)FDQSQIQEFK"
+
+#Peptide parser
+item_peptide_parser <- function(item_peptide){
+  
+  item_peptide_parsed <- gsub("[0-9\\.\\(\\)\\+]", "", item_peptide)
+  
+  return(item_peptide_parsed)
+  }
+
+item_peptide_parsed <- item_peptide_parser(item_peptide)
+
+#List all PROTEINS found for a given PEPTIDE
+all_proteins_of_a_peptide <- function(df = df, item_peptide){
+  
+  parsed_peptide_df <- sapply(df$Peptide, function(x){item_peptide_parser(x)})
+  compare <- which(parsed_peptide_df == item_peptide)
+  
+  df <- as.data.frame(df[compare,])
+  
+  return(df)
+}
+
+protein_peptides <- all_proteins_of_a_peptide(peptide_row, item_peptide_parsed)
+
+print("All PROTEINS found for a given PEPTIDE")
+print(paste0("PROTEINS of: ", item_peptide_parsed))
+unique(protein_peptides$Accession)
+
+#******CASE 2
+```
+
+## Parser #3
+
+1. List the modifications types found for a given protein based on the modified peptide information.
+2. Locate a given identified peptide in the corresponding protein sequence.
+3. Locate and list the positions modified in a given protein based on the modified peptide information.
+4. Export the modified sequence of the protein in FASTA format (modified sites marked with * to the right).
+
+### Parser #3 (case 1)
+
+```{r parser#3_c1, echo=FALSE, warning=FALSE}
+
+#******CASE 1
+
+#PTM parser for PROTEIN
+peaks_protein_ptm <- function(df = df, column_name, item_protein){
+  
+  column <- as.vector(df[, grep(column_name, names(df))])
+  #column_parsed <- as.vector(apply(column, 1, function(x){item_peptide_parser(x)}))
+  peaks_ptm_df <- df[grep(item_protein, column), which(names(df) %in% c(column_name, "PTM", "AScore"))]
+  ptm_list <- unlist(sapply(peaks_ptm_df$PTM, function(x){strsplit(x, ";")}))
+  
+  return(list(ptm_df = peaks_ptm_df, ptm_list = unique(ptm_list)))
+  }
+
+item_protein <- "AHNK_HUMAN"
+
+#input could be either of peptide_row (parser#2) or protein_peptides (parser#2_c1) data frames
+peaks_protein_ptm_result <- peaks_protein_ptm(peptide_row, "Accession", item_protein)
+
+print(paste0("Modification types found for PROTEIN: ", item_protein))
+peaks_protein_ptm_result$ptm_list
+
+
+#PTM parser for PEPTIDE
+#column_name == "Peptide"
+peaks_peptide_ptm <- function(df = df, column_name, item_peptide){
+  
+  item_peptide_parsed <- item_peptide_parser(item_peptide)
+  column <- df[grep(column_name, names(df))]
+  column_parsed <- as.vector(apply(column, 1, function(x){item_peptide_parser(x)}))
+  peaks_ptm_df <- df[which(column_parsed == item_peptide_parsed), which(names(df) %in% c(column_name, "PTM", "AScore"))]
+  ptm_list <- unlist(sapply(peaks_ptm_df$PTM, function(x){strsplit(x, ";")}))
+  
+  return(list(ptm_df = peaks_ptm_df, ptm_list = unique(ptm_list)))
+  }
+
+item_peptide <- "AT(+79.97)S(+79.97)NVFAM(+15.99)FDQSQIQEFK"
+
+peaks_peptide_ptm_result <- peaks_peptide_ptm(peptide_row, "Peptide", item_peptide)
+
+print(paste0("Modifications types found for PEPTIDE: ", item_peptide, " (",item_peptide_parser(item_peptide),")" ))
+peaks_peptide_ptm_result$ptm_list
+
+
+#******CASE 1
+
+```
+
+### Parser #3 (case 2)
+
+```{r parser#3_c2, echo=FALSE, warning=FALSE, message = FALSE}
+
+#******CASE 2
+
+library(UniProt.ws)
+
+#Fetch ORGANISM DATA
+UniProt.ws <- UniProt.ws(taxId=9606)
+#Fetch all uniprotids for 9606
+#all_uniprotID <- UniProt.ws@taxIdUniprots
+
+#Fetch corresponding PROTEIN SEQUENCE
+protein_key <- "Q09666"
+s <- select(UniProt.ws, keys= protein_key, columns=c("SEQUENCE"))
+sequence <- setNames(s$SEQUENCE, s$UNIPROTKB)
+sequence <- gsub(pattern="[[:space:]]", replacement="", x=sequence)
+paste0("Sequence length of PROTEIN: ", protein_key)
+nchar(sequence)
+
+#Gives PEPTIDE positional information in the corresponding PROTEIN SEQUENCE
+#Use sequence fetch in previous step
+
+item_peptide <- "LPS(+79.97)GSGAASPTGS(+79.97)AVDIR"
+
+peptide_position_in_sequence <- function(sequence, item_peptide){
+  
+  item_peptide_parsed <- item_peptide_parser(item_peptide)
+  #Returns positions of every match in a string
+  pos <- gregexpr(item_peptide_parsed, sequence, fixed = TRUE)
+  
+  return(pos[[1]])
+}
+
+pos_peptide_in_sequence <- peptide_position_in_sequence(sequence, item_peptide)
+
+paste0("Position of PEPTIDE ", item_peptide, " in the PROTEIN ", protein_key, ":")
+print(pos_peptide_in_sequence)
+
+#******CASE 2
+
+```
+
+### Parser #3 (case 3)
+
+```{r parser#3_c3, echo=FALSE, warning=FALSE, message = FALSE}
+
+#Gives MODIFIED SITES positional information in the corresponding PROTEIN SEQUENCE
+#Takes a PEPTIDE and its position in the PROTEIN SEQUENCE as input
+modified_position_in_sequence <- function(sequence, item_peptide, pos_peptide_in_sequence){
+  
+  #Collapse modification information
+  #Finds the position of modification in peptide and marks it with *
+  temporary_site <- gsub("\\([^\\)]+\\)", "*", item_peptide)
+  #print(temporary_site)
+  
+  #Split and cumulative sum
+  split <- strsplit(temporary_site, "*", fixed = TRUE)
+  #print(split)
+  split_length <- sapply(split, function(x){nchar(x)})
+  split_length_sum <- cumsum(split_length)
+  #print(split_length_sum)
+  #print(split_length_sum[1:length(split_length_sum)-1])
+  
+  #Find the position in PROTEIN
+  site_in_protein <- as.vector(sapply(pos_peptide_in_sequence - 1, function(x){split_length_sum[1:length(split_length_sum)-1] + (x)}))
+  
+  return(site_in_protein)
+  }
+
+#Matrix output
+pos_site_in_protein <- modified_position_in_sequence(sequence, item_peptide, pos_peptide_in_sequence)
+
+print(paste0("Position of MODIFIED SITES of PEPTIDE ", item_peptide, " in the PROTEIN SEQUENCE of PROTEIN ", protein_key, " :"))
+print(pos_site_in_protein)
+
+#Gives AMINO ACID MODIFIED
+aa_in_position <- function(sequence, pos_site_in_protein){
+  
+  site <-sapply(pos_site_in_protein, function(x){substring(sequence, x, x)})
+  aa_site <- sapply(c(1:length(site)), function(x){paste0(site[x], pos_site_in_protein[x])})
+  
+  return(unlist(aa_site))
+}
+
+aa <- aa_in_position(sequence, pos_site_in_protein)
+
+print("Modified AMINO ACID(S):")
+print(aa)
+
+#******CASE 3
+
+#Combination of code above in an analysis workflow
+#Find all MODIFIED SITES of a given protein
+protein_peptides <- all_peptides_of_a_protein(peptide, protein_key)
+s <- select(UniProt.ws, keys= protein_key, columns=c("SEQUENCE"))
+sequence <- setNames(s$SEQUENCE, s$UNIPROTKB)
+sequence <- gsub(pattern="[[:space:]]", replacement="", x=sequence)
+nchar(sequence)
+pos_peptide_in_sequence <- sapply(protein_peptides$Peptide, function(x){peptide_position_in_sequence(sequence, x)})
+pos_site_in_protein <- sapply(c(1:length(pos_peptide_in_sequence)), function(x){modified_position_in_sequence(sequence, protein_peptides$Peptide[x], pos_peptide_in_sequence[x])})
+
+sites_list <- sapply(pos_site_in_protein, function(x){aa_in_position(sequence, x)})
+names(sites_list) <- protein_peptides$Peptide
+all_mod_sites <- sort(unique(unlist(sites_list)))
+
+print(paste0("MODIFIED SITES found for protein", protein_key, " :"))
+print(all_mod_sites)
+
+#******CASE 3
+
+```
+
+### Parser #3 (case 4)
+
+```{r parser#3_c4, echo=FALSE, warning=FALSE, message = FALSE}
+
+#******CASE 4
+
+#Visualize MODIFIED SITES found in a PROTEIN
+sites_protein_visual <- function(sequence, all_mod_sites, df){
+  
+  #Get sites position (numeric)
+  sites <- sapply(all_mod_sites, function(x){ gsub("[A-Z]", "", x)})
+  
+  #Itemize sequence
+  sequence_items <- sapply(c(1:nchar(sequence)), function(x){substr(sequence, x, x)})
+  names(sequence_items) <- c(1:length(sequence_items))
+  
+  #Highlight item in PROTEIN SEQUENCE with *
+  sequence_items_marked <- paste0(replace(sequence_items, sites, sapply(as.numeric(sites), function(x){ paste0(sequence_items[x], "*")})), collapse="")
+  
+  return(sequence_items_marked)
+  
+}
+
+marked_seq <- sites_protein_visual(sequence, all_mod_sites, protein_peptides)
+
+#FASTA converter
+library(Biostrings)
+
+#Create PROTEIN SEQUENCE object
+a <- AAStringSet(marked_seq)
+pp <- data.frame(a)
+pp$a
+#Save the marked PROTEIN SEQUENCE in FASTA format
+#writeXStringSet(a, "/home/teresanvd/this_fasta.fasta")
+
+#******CASE 4
+
+```
+
+## Parser #4
+
+1. Generate and append new positional information regarding sequence modification to the peptide.csv file and save the data in the peptide_ext.csv file.
+2. Deconvolute the “AScore” column to allow filtering the modification data using the AScore value.
+3. Create new columns to store the UniProt Accessions and UniProt Identifiers separately, i.e., “Acc” and “Id” columns, respectively.
+
+### Parser #4 (case 1-3)
+
+```{r parser#4_c1-3, echo=FALSE, warning=FALSE, message = FALSE}
+
+#******CASE 1-3
+
+#Find PEPTIDE sequence in PROTEIN, +-7 centered at the MODIFIED AMINO ACID 
+centered_seq <- function(sequence, positions){
+
+  names(sequence) <- NULL
+  sequence_len <- nchar(sequence)
+  
+  #Upper end does not include MODIFIED SITE
+  p_max <- positions - 0
+  upper <- sapply(p_max, function(x){ifelse(x > sequence_len - 7, paste0(paste(substring(sequence, x:sequence_len, x:sequence_len), collapse = ""), paste(rep("_", abs((x + 7 - 1) - sequence_len)), collapse = "")), paste(substring(sequence, (x+1):(x+7), (x+1):(x+7)), collapse = ""))})
+  #names(upper) <- NULL
+  
+  #Lower end including MODIFIED SITE
+  p_min <- positions - 7
+  lower <- sapply(p_min, function(x){ifelse(x <= 0, paste0(paste(rep("_", (abs(x)+1)), collapse = ""), paste(substring(sequence, 1:(x+7), 1:(x+7)), collapse = "")), paste(substring(sequence, x:(x+7), x:(x+7)), collapse = ""))})
+
+  peptide_7 <- sapply(c(1:length(upper)), function(x){paste0(lower[x],upper[x])})
+  
+  return(peptide_7)
+  
+  }
+
+#Output table == Expanded table
+AScore_ptm_parser <- function(df = df, sequence){
+  
+  #Position of PEPTIDE in PROTEIN SEQUENCE
+  Mod_pep_prot <- lapply(df$Peptide, function(x){ peptide_position_in_sequence(sequence, x)})
+  
+  merge_df_v <- function(df, v){
+    
+    df$Mod_pep_prot <- v
+    df <- as.data.frame(t(df))
+    
+    return(df)
+  }
+  
+  df <- lapply(c(1:dim(df)[1]), function(i){lapply(Mod_pep_prot[[i]], function(x){merge_df_v(df[i,], x)})})
+  
+  df <- as.data.frame(t(as.data.frame(df)))
+  
+  #Create list of AScores
+  AScores <- sapply(df$AScore, function(x){strsplit(as.character(x), ";")})
+  
+  merge_df_v <- function(df, v){
+    
+    df$AScore_slim <- v
+    df <- as.data.frame(t(df))
+    
+    return(df)
+  }
+  
+  df_AScore_slim <- lapply(c(1:dim(df)[1]), function(i){lapply(AScores[[i]], function(x){merge_df_v(df[i,], x)})})
+  
+  df_AScore_slim <- as.data.frame(t(as.data.frame(df_AScore_slim)))
+  
+  #List of AScores_value
+  AScores_data <- sapply(df_AScore_slim$AScore_slim, function(x){strsplit(as.character(x), ":")})
+  AScores_value <- unlist(lapply(AScores_data, function(x){x[3]}))
+  df_AScore_slim$AScore_value <- AScores_value
+  
+  #MODIFIED SITE in PEPTIDE
+  Mod_pos <- unlist(lapply(AScores_data, function(x){x[1]}))
+  df_AScore_slim$Mod_pos_pep <- Mod_pos
+  Mod_pos_pep_num <- sapply(df_AScore_slim$Mod_pos_pep, function(x){as.numeric(paste(substring(x, 2:nchar(x), 2:nchar(x)), collapse=""))})
+  Mod_pos_pep_aa <- sapply(df_AScore_slim$Mod_pos_pep, function(x){as.numeric(paste(substring(x, 1, 1), collapse=""))})
+  
+  #Position of MODIFIED SITE in PROTEIN SEQUENCE
+  df_AScore_slim$Mod_pos_prot <- (as.numeric(as.character(df_AScore_slim$Mod_pep_prot)) - 1) + Mod_pos_pep_num
+  
+  #MODIFIED AMINO ACID
+  df_AScore_slim$Mod_pos_aa <- aa_in_position(sequence, df_AScore_slim$Mod_pos_prot)
+  
+  #PEPTIDE slim
+  df_AScore_slim$Peptide_slim <- sapply(df_AScore_slim$Peptide, function(x){item_peptide_parser(x)})
+  
+  #PROTEIN identifiers
+  df_AScore_slim$Acc <- peaks_uniprot_id(df_AScore_slim, "Acc", verbose = FALSE)
+  df_AScore_slim$Id <- peaks_uniprot_id(df_AScore_slim, "Id", verbose = FALSE)
+  
+  #PTM slim
+  df_AScore_slim$PTM_slim <- unlist(lapply(AScores_data, function(x){x[2]}))
+  
+  df_AScore_slim$`Peptide_+-7` <- centered_seq(sequence, df_AScore_slim$Mod_pos_prot)
+  
+  return(df_AScore_slim)
+}
+
+peptide_acc <- unique(peaks_uniprot_id(peptide_row, as.character("Acc"), verbose = FALSE))
+names(peptide_acc) <- NULL
+s <- select(UniProt.ws, keys= peptide_acc, columns=c("SEQUENCE"))
+sequences <- setNames(s$SEQUENCE, s$UNIPROTKB)
+sequences <- sapply(sequences, function(x){gsub(pattern="[[:space:]]", replacement="", x=x)})
+
+a <- lapply(peptide_acc, function(x){all_peptides_of_a_protein(peptide_row, as.character(x))})
+
+b <- lapply(c(1:length(a)), function(x){AScore_ptm_parser(a[[x]], sequences[[x]])})
+
+#peptide.csv file extended
+peptide_ext <- do.call("rbind", b)
+
+#******CASE 1-3
+
+```
